@@ -9,6 +9,7 @@ A KDE Plasma task management widget that allows you to track and complete your d
 
 - **Task Management**: Create, edit, and complete tasks with a simple click
 - **Persistent Storage**: Tasks are saved automatically and persist across sessions
+- **Google Tasks** (optional, off by default): Display a Google task list, sync task changes, and fetch online updates. Includes a Python setup script for your own Google account. [Setup instructions](contents/docs/google-tasks.md)
 - **Customizable Appearance**: 
   - Change widget and task colors
   - Adjust opacity and blur effects
@@ -60,6 +61,21 @@ Right-click on the widget and select **Configure Widget** to customize:
   - Blur effects
   - Corner and task radii
   - Task height
+
+### Google Tasks (optional)
+
+To use Google Tasks, first create a Google **Desktop app** OAuth client and enable the **Google Tasks API**, then run:
+
+```bash
+python3 contents/scripts/google_tasks.py setup \
+  --client-secrets "$HOME/Downloads/client_secret_YOUR_CLIENT_ID.json"
+```
+
+The script signs you in, lets you choose a task list, and installs a local helper as a per-user service. It requires Python 3.9+ and uses no third-party Python packages.
+
+Open **Configure Widget → Google Tasks**, paste the helper access key printed by setup, and enable **Use Google Tasks**. The selected list refreshes every minute, and task changes sync to Google. Turning the option off brings back your local tasks.
+
+See the [full Google Tasks guide](contents/docs/google-tasks.md) for Google Cloud setup, manual startup, sync behavior, and removal instructions.
 
 ## Usage
 

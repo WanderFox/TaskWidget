@@ -1,0 +1,7 @@
+__pycache__/
+*.py[cod]
+
+# Personal Google OAuth credentials and helper configuration
+client_secret*.json
+credentials.json
+google-tasks.json

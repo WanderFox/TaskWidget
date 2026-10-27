@@ -30,6 +30,9 @@ PlasmoidItem {
     property int taskHeight: Number(plasmoid.configuration.taskHeight || 56)
     property bool enableHideWidget: plasmoid.configuration.enableHideWidget || false
     property bool widgetHidden: plasmoid.configuration.widgetHidden
+    property bool enableGoogleTasks: plasmoid.configuration.enableGoogleTasks || false
+    property var taskModel: enableGoogleTasks ? googleTasks.model : localTaskModel
+    property bool canModifyTasks: !enableGoogleTasks || googleTasks.canModify
 
     property int completedTasks: TaskUtils.completedCount(taskModel)
     property bool widgetHovered: false
@@ -48,7 +51,25 @@ PlasmoidItem {
     }
 
     ListModel {
-        id: taskModel
+        id: localTaskModel
+    }
+
+    GoogleTasksClient {
+        id: googleTasks
+        active: root.enableGoogleTasks
+        port: plasmoid.configuration.googleTasksPort
+        accessKey: plasmoid.configuration.googleTasksAccessKey
+        storedCache: plasmoid.configuration.googleTasksCache
+        editing: root.editingTask
+        onCacheSaved: function(cache) {
+            plasmoid.configuration.googleTasksCache = cache
+        }
+        onTasksChanged: root.updateCompletedCount()
+    }
+
+    onTaskModelChanged: {
+        editingTask = false
+        updateCompletedCount()
     }
 
     property var defaultTasks: [
@@ -70,31 +91,72 @@ PlasmoidItem {
                 storedTasks = null
             }
         }
-        TaskUtils.loadTasks(taskModel, storedTasks, defaultTasks)
-        completedTasks = TaskUtils.completedCount(taskModel)
+        TaskUtils.loadTasks(localTaskModel, storedTasks, defaultTasks)
+        updateCompletedCount()
+    }
+
+    function updateCompletedCount() {
+        completedTasks = taskModel ? TaskUtils.completedCount(taskModel) : 0
     }
 
     function saveTasks() {
-        var arr = TaskUtils.modelToArray(taskModel)
+        var arr = TaskUtils.modelToArray(localTaskModel)
         plasmoid.configuration.tasks = JSON.stringify(arr)
-        completedTasks = TaskUtils.completedCount(taskModel)
+        updateCompletedCount()
     }
 
     function addTask() {
-        TaskUtils.appendTask(taskModel, i18n("New task"))
-        saveTasks()
-    }
-
-    function deleteTask(index) {
-        if (index >= 0 && index < taskModel.count) {
-            taskModel.remove(index)
+        if (enableGoogleTasks) {
+            googleTasks.createTask(i18n("New task"))
+        } else {
+            TaskUtils.appendTask(localTaskModel, i18n("New task"))
             saveTasks()
         }
     }
 
+    function deleteTask(index) {
+        if (index >= 0 && index < taskModel.count) {
+            if (enableGoogleTasks) {
+                googleTasks.deleteTask(taskModel.get(index).id)
+            } else {
+                localTaskModel.remove(index)
+                saveTasks()
+            }
+        }
+    }
+
     function clearCompletedTasks() {
-        TaskUtils.removeCompleted(taskModel)
-        saveTasks()
+        if (enableGoogleTasks) {
+            googleTasks.clearCompleted()
+        } else {
+            TaskUtils.removeCompleted(localTaskModel)
+            saveTasks()
+        }
+    }
+
+    function setTaskCompleted(index, completed) {
+        if (!canModifyTasks || index < 0 || index >= taskModel.count) {
+            return
+        }
+        if (enableGoogleTasks) {
+            googleTasks.updateTask(taskModel.get(index).id, { completed: completed })
+        } else {
+            localTaskModel.setProperty(index, "completed", completed)
+            saveTasks()
+        }
+    }
+
+    function setTaskDescription(index, description, onSaved) {
+        if (!canModifyTasks || index < 0 || index >= taskModel.count) {
+            return
+        }
+        if (enableGoogleTasks) {
+            googleTasks.updateTask(taskModel.get(index).id, { description: description }, onSaved)
+        } else {
+            localTaskModel.setProperty(index, "description", description)
+            saveTasks()
+            onSaved(true)
+        }
     }
 
     Rectangle {
@@ -166,6 +228,7 @@ PlasmoidItem {
 
             Controls.Button {
                 id: addButton
+                enabled: root.canModifyTasks && !root.editingTask
                 implicitWidth: 34
                 implicitHeight: 34
                 font.bold: true
@@ -191,6 +254,45 @@ PlasmoidItem {
         }
 
         RowLayout {
+            visible: root.enableGoogleTasks
+            Layout.fillWidth: true
+            spacing: 4
+
+            PlasmaComponents.Label {
+                Layout.fillWidth: true
+                text: googleTasks.busy ? i18n("Syncing Google Tasks…")
+                    : (googleTasks.listTitle ? i18n("Google Tasks: %1", googleTasks.listTitle) : i18n("Google Tasks"))
+                textFormat: Text.PlainText
+                elide: Text.ElideRight
+                font.pixelSize: 12
+                color: widgetTextColor
+            }
+
+            Controls.ToolButton {
+                icon.name: "view-refresh"
+                icon.color: root.widgetTextColor
+                text: i18n("Sync Google Tasks")
+                display: Controls.AbstractButton.IconOnly
+                enabled: googleTasks.configured && !googleTasks.busy
+                opacity: enabled ? 1 : 0.5
+                Accessible.name: text
+                Controls.ToolTip.visible: hovered
+                Controls.ToolTip.text: text
+                onClicked: googleTasks.refresh()
+            }
+        }
+
+        PlasmaComponents.Label {
+            visible: root.enableGoogleTasks && googleTasks.errorText.length > 0
+            Layout.fillWidth: true
+            text: googleTasks.errorText
+            textFormat: Text.PlainText
+            wrapMode: Text.WordWrap
+            font.pixelSize: 12
+            color: widgetTextColor
+        }
+
+        RowLayout {
             Layout.fillWidth: true
             spacing: 10
             height: 24
@@ -205,6 +307,7 @@ PlasmoidItem {
 
             PlasmaComponents.Button {
                 visible: taskModel.count > 0
+                enabled: completedTasks > 0 && root.canModifyTasks && !root.editingTask
                 leftPadding: 8
                 rightPadding: 8
                 text: i18n("Clear completed")
@@ -233,9 +336,16 @@ PlasmoidItem {
             }
 
             PlasmaComponents.Label {
-                text: i18n("No tasks yet. Click + to add one.")
+                text: root.enableGoogleTasks
+                    ? (googleTasks.busy ? i18n("Loading Google Tasks…")
+                        : (googleTasks.ready ? i18n("No Google tasks yet. Click + to add one.")
+                            : i18n("Connect Google Tasks to load your list.")))
+                    : i18n("No tasks yet. Click + to add one.")
                 visible: taskModel.count === 0
                 anchors.centerIn: parent
+                width: parent.width
+                horizontalAlignment: Text.AlignHCenter
+                wrapMode: Text.WordWrap
                 font.italic: true
                 color: "#a0aec0"
             }
@@ -294,8 +404,15 @@ PlasmoidItem {
 
             onEditingChanged: {
                 if (editing) {
+                    taskEditor.text = model && model.description ? model.description : ""
                     taskEditor.forceActiveFocus()
                     taskEditor.selectAll()
+                }
+            }
+
+            Component.onDestruction: {
+                if (editing) {
+                    root.editingTask = false
                 }
             }
 
@@ -310,6 +427,7 @@ PlasmoidItem {
                     anchors.left: parent.left
                     anchors.verticalCenter: parent.verticalCenter
                     checked: model && model.completed
+                    enabled: root.canModifyTasks && !root.editingTask
                     visible: root.widgetHovered && !taskItem.editing
                     opacity: root.widgetHovered && !taskItem.editing ? 1 : 0
                     
@@ -317,11 +435,11 @@ PlasmoidItem {
                     Behavior on visible { PropertyAnimation { duration: 220 } }
                     implicitWidth: 22
                     implicitHeight: 22
-                    onCheckedChanged: {
+                    onClicked: {
                         if (typeof index !== "undefined" && index >= 0) {
-                            taskModel.setProperty(index, "completed", checked)
-                            saveTasks()
+                            setTaskCompleted(index, checked)
                         }
+                        checked = Qt.binding(function() { return model && model.completed })
                     }
                 }
 
@@ -339,6 +457,7 @@ PlasmoidItem {
                         id: taskLabel
                         anchors.fill: parent
                         text: model && model.description ? model.description : ""
+                        textFormat: Text.PlainText
                         color: model && model.completed ? completedTaskTextColor : taskTextColor
                         font.italic: model && model.completed
                         font.strikeout: model && model.completed
@@ -350,40 +469,47 @@ PlasmoidItem {
                     MouseArea {
                         anchors.fill: parent
                         acceptedButtons: Qt.LeftButton
+                        enabled: root.canModifyTasks && !root.editingTask
                         hoverEnabled: true
                         onDoubleClicked: {
                             taskItem.editing = false
                             editingTask = false
                         }
-                        onClicked: {
-                            taskCheckbox.checked = !taskCheckbox.checked
+                        onClicked: function(mouse) {
+                            setTaskCompleted(index, !model.completed)
                             mouse.accepted = true
                         }
                     }
                 }
                 Controls.TextArea {
                     id: taskEditor
-                    text: model && model.description ? model.description : ""
                     visible: taskItem.editing
-                    Keys.onPressed: {
+                    readOnly: root.enableGoogleTasks && googleTasks.busy
+                    Keys.onPressed: function(event) {
                         if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                            event.accepted = true
+                            if (readOnly) {
+                                return
+                            }
                             if (event.modifiers & Qt.ControlModifier || event.modifiers & Qt.ShiftModifier) {
-                                event.accepted = true
                                 insert(cursorPosition, "\n")
                             } else {
-                                event.accepted = true
-                                
                                 if (text.trim() !== "") {
                                     if (typeof index !== "undefined" && index >= 0) {
-                                        taskModel.setProperty(index, "description", text.trim())
-                                        saveTasks()
+                                        setTaskDescription(index, text.trim(), function(saved) {
+                                            if (saved) {
+                                                taskItem.editing = false
+                                                editingTask = false
+                                                root.forceActiveFocus()
+                                            }
+                                        })
                                     }
                                 } else {
                                     text = model && model.description ? model.description : ""
+                                    taskItem.editing = false
+                                    editingTask = false
+                                    root.forceActiveFocus()
                                 }
-                                taskItem.editing = false
-                                editingTask = false
-                                root.forceActiveFocus()
                             }
                         }
                     } 
@@ -415,6 +541,7 @@ PlasmoidItem {
 
                 Controls.Button {
                     id: editButton
+                    enabled: root.canModifyTasks && !root.editingTask
                     anchors.right: deleteButton.left
                     anchors.rightMargin: 4
                     anchors.verticalCenter: parent.verticalCenter
@@ -446,6 +573,7 @@ PlasmoidItem {
 
                 Controls.Button {
                     id: deleteButton
+                    enabled: root.canModifyTasks && !root.editingTask
                     anchors.right: parent.right
                     anchors.verticalCenter: parent.verticalCenter
                     implicitWidth: 18

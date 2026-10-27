@@ -24,7 +24,7 @@ function appendTask(model, description) {
 
 function loadTasks(model, storedTasks, defaultTasks) {
     model.clear()
-    var source = storedTasks && storedTasks.length > 0 ? storedTasks : defaultTasks
+    var source = Array.isArray(storedTasks) ? storedTasks : defaultTasks
     for (var i = 0; i < source.length; ++i) {
         var itm = source[i] || {}
         var idv = (typeof itm.id !== 'undefined' && itm.id !== null && isFinite(Number(itm.id))) ? Number(itm.id) : nextId(model)

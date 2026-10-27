@@ -26,6 +26,24 @@
             <label>Saved tasks</label>
             <default>[]</default>
         </entry>
+        <entry name="enableGoogleTasks" type="bool">
+            <label>Use Google Tasks</label>
+            <default>false</default>
+        </entry>
+        <entry name="googleTasksPort" type="int">
+            <label>Local Google Tasks helper port</label>
+            <default>18743</default>
+            <min>1024</min>
+            <max>65535</max>
+        </entry>
+        <entry name="googleTasksAccessKey" type="string">
+            <label>Local Google Tasks helper access key</label>
+            <default></default>
+        </entry>
+        <entry name="googleTasksCache" type="string">
+            <label>Last synced Google task list</label>
+            <default></default>
+        </entry>
         <entry name="widgetTitle" type="string">
             <label>Widget title</label>
             <default>Tasks</default>
